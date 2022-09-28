@@ -1,5 +1,7 @@
+from typing import List
+
 import fastapi
-from .customer_service import get_all_customers, get_customer_by_document, create_customer, update_customer, delete_customer
+from .models.tortoise import Customer
 
 router = fastapi.APIRouter()
 
@@ -8,17 +10,17 @@ MESSAGE_DOCUMENT_IS_REQUIRED = "Document is required"
 
 
 @router.get("/customers")
-async def get_customers_api() -> list:
-    return await get_all_customers()
+async def get_customers_api() -> List[Customer]:
+    return await Customer.all()
 
 
 @router.get("/customer/{document}")
-async def get_customer_api(document: str) -> dict:
+async def get_customer_api(document: str) -> Customer:
     if not document.isnumeric():
         raise fastapi.HTTPException(
             status_code=400, detail=MESSAGE_DOCUMENT_IS_REQUIRED)
 
-    if (customer := await get_customer_by_document(document)) is None:
+    if (customer := await Customer.filter(document=document).first()) is None:
         raise fastapi.HTTPException(
             status_code=404,
             detail=MESSAGE_CUSTOMER_NOT_FOUND)
@@ -27,33 +29,38 @@ async def get_customer_api(document: str) -> dict:
 
 
 @router.post("/customer")
-async def create_customer_api(customer: dict) -> dict:
+async def create_customer_api(customer: dict) -> Customer:
     if customer.get("document") is None or not customer.get(
             "document").isnumeric():
         raise fastapi.HTTPException(
             status_code=400, detail=MESSAGE_DOCUMENT_IS_REQUIRED)
 
-    if await get_customer_by_document(
-            customer["document"]) is not None:
+    if await Customer.filter(document=customer["document"]).exists() is not None:
         raise fastapi.HTTPException(
             status_code=409,
             detail="Customer already exists")
 
-    return await create_customer(customer)
+    return await Customer.create(**customer)
 
 
 @router.put("/customer/{document}")
-async def update_customer_api(document: str, customer: dict) -> dict:
+async def update_customer_api(document: str, customer: dict) -> Customer:
     if not document.isnumeric():
         raise fastapi.HTTPException(
             status_code=400, detail=MESSAGE_DOCUMENT_IS_REQUIRED)
 
-    if await get_customer_by_document(document) is None:
+    if await Customer.filter(document=customer["document"]).exists() is None:
         raise fastapi.HTTPException(
             status_code=404,
             detail=MESSAGE_CUSTOMER_NOT_FOUND)
 
-    return await update_customer(document, customer)
+    updated_id = await Customer.filter(document=document).update(**customer)
+    if updated_id == 0:
+        raise fastapi.HTTPException(
+            status_code=500,
+            detail="Customer not updated")
+
+    return await Customer.filter(document=document).first()
 
 
 @router.delete("/customer/{document}")
@@ -62,10 +69,10 @@ async def delete_customer_api(document: str) -> dict:
         raise fastapi.HTTPException(
             status_code=400, detail=MESSAGE_DOCUMENT_IS_REQUIRED)
 
-    if await get_customer_by_document(document) is None:
+    if (customer_data := await Customer.filter(document=document).first()) is None:
         raise fastapi.HTTPException(
             status_code=404,
             detail=MESSAGE_CUSTOMER_NOT_FOUND)
 
-    await delete_customer(document)
+    await Customer.delete(customer_data)
     return {"message": "Customer deleted!"}
